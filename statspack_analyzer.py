@@ -1780,5 +1780,15 @@ class StatspackAnalizer(object):
 
 
 if __name__ == '__main__':
-    sa = StatspackAnalizer(sys.argv[1], sys.argv[2])
-    sa.plot()
+    if len(sys.argv) == 3:
+        sa = StatspackAnalizer(sys.argv[1], sys.argv[2])
+        sa.plot()
+    else:
+        print("This script by Kamil Stawiarski (@ora600pl) is to help you with visualizing data from multiple"
+              "statpack reports")
+
+        print("Usage:")
+        print("python statspack_analyzer.py /path/to/reports/ pattern_to_filter_reports_by_name")
+        print("You have to install plotly first [pip install plotly]\n")
+        print("Details can be found on this blog: blog.ora-600.pl "
+              "and GitHub: https://github.com/ora600pl/statspack_scripts")
