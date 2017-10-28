@@ -7,7 +7,7 @@ from datetime import datetime
 from plotly import tools
 
 
-class StatspackAnalizer(object):
+class StatspackAnalyzer(object):
     def __init__(self, dirname, name_pattern):
         self.dirname = dirname
         self.name_pattern = name_pattern
@@ -1781,7 +1781,7 @@ class StatspackAnalizer(object):
 
 if __name__ == '__main__':
     if len(sys.argv) == 3:
-        sa = StatspackAnalizer(sys.argv[1], sys.argv[2])
+        sa = StatspackAnalyzer(sys.argv[1], sys.argv[2])
         sa.plot()
     else:
         print("This script by Kamil Stawiarski (@ora600pl) is to help you with visualizing data from multiple "
