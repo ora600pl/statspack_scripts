@@ -1,6 +1,6 @@
 A set of scripts to help you with analyzing STATSPACK data. 
 
-gen_statspack_reps.sh will generate a set of statspack reports for a give snap range 
+gen_statspack_reps.sh will generate a set of statspack reports for a given snap range 
 and statspack_analyzer.py will generate some nice charts to visualize what was going on
 over a time withing those reports 
 
