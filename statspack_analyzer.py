@@ -1784,7 +1784,7 @@ if __name__ == '__main__':
         sa = StatspackAnalizer(sys.argv[1], sys.argv[2])
         sa.plot()
     else:
-        print("This script by Kamil Stawiarski (@ora600pl) is to help you with visualizing data from multiple"
+        print("This script by Kamil Stawiarski (@ora600pl) is to help you with visualizing data from multiple "
               "statpack reports")
 
         print("Usage:")
