@@ -1739,7 +1739,7 @@ class StatspackAnalyzer(object):
 
                     except BaseException as e:
                         print(e)
-                        print report_line
+                        print(report_line)
                         raise
 
         data_x = sorted(snap_data.keys())
