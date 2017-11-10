@@ -1700,7 +1700,8 @@ class StatspackAnalyzer(object):
 
                         if report_line.find("Begin Snap:") >= 0:
                             date = report_line.split()[3] + " " + report_line.split()[4]
-                            date = datetime.strptime(date, "%d-%b-%y %H:%M:%S")
+                            date = datetime.strptime(date, "%d-%b-%y %H:%M:%S").strftime("%Y%m%d:%H:%M")
+                            date = date + " (" + report_line.split()[2] + ")"
                             snap_data[date] = {}
                             snap_data_profile[date] = {}
 
@@ -1769,6 +1770,7 @@ class StatspackAnalyzer(object):
                                          y=data_y[series],
                                          name=series
                                          ), 1, 1)
+
         for series in data_y_profile:
             fig.append_trace(go.Scatter(x=data_x,
                                            fill="tozeroy",
