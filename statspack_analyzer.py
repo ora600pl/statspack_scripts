@@ -1686,12 +1686,14 @@ class StatspackAnalyzer(object):
 
         snap_data = {}
         snap_data_profile = {}
+        snap_data_cpu = {}
 
         for fname in os.listdir(self.dirname):
             if fname.endswith("txt") and fname.find(self.name_pattern) >= 0:
                 report_file = open(self.dirname + "/" + fname, "r").readlines()
                 wait_class_section = False
                 load_profile_section = False
+                host_cpu_section = False
                 event_class_wait_sum = {}
                 for report_line in report_file:
                     try:
@@ -1704,6 +1706,7 @@ class StatspackAnalyzer(object):
                             date = date + " (" + report_line.split()[2] + ")"
                             snap_data[date] = {}
                             snap_data_profile[date] = {}
+                            snap_data_cpu[date] = {}
 
                         elif report_line.find("DB time:") >= 0:
                             snap_data[date]["DB time"] = float(report_line_words[2].replace(",","")) * 60
@@ -1713,6 +1716,18 @@ class StatspackAnalyzer(object):
 
                         elif report_line.startswith("Wait Events (fg and bg) DB/Inst"):
                             wait_class_section = True
+
+                        elif report_line.find("Host CPU") >= 0:
+                            host_cpu_section = True
+
+                        elif host_cpu_section and self.is_float(report_line_long_words[1]):
+                            snap_data_cpu[date]["Begin"] = float(report_line_long_words[1])
+                            snap_data_cpu[date]["End"] = float(report_line_long_words[2])
+                            snap_data_cpu[date]["User"] = float(report_line_long_words[3])
+                            snap_data_cpu[date]["System"] = float(report_line_long_words[4])
+                            snap_data_cpu[date]["Idle"] = float(report_line_long_words[5])
+                            snap_data_cpu[date]["WIO"] = float(report_line_long_words[6])
+                            host_cpu_section = False
 
                         elif load_profile_section and len(report_line_long_words) > 2 and \
                                         report_line_long_words[1] in self.load_profile_elems:
@@ -1746,6 +1761,8 @@ class StatspackAnalyzer(object):
         data_x = sorted(snap_data.keys())
         data_y = {}
         data_y_profile = {}
+        data_y_cpu = {}
+
         for i in data_x:
             for j in snap_data[i]:
                 if data_y.get(j, -1) == -1:
@@ -1755,14 +1772,22 @@ class StatspackAnalyzer(object):
                     data_y[j].append(snap_data[i][j])
 
             for j in snap_data_profile[i]:
-                if data_y_profile.get(j,-1) == -1:
+                if data_y_profile.get(j, -1) == -1:
                     data_y_profile[j] = []
                     data_y_profile[j].append(snap_data_profile[i][j])
                 else:
                     data_y_profile[j].append(snap_data_profile[i][j])
 
-        fig = tools.make_subplots(rows=2, cols=1, subplot_titles=("Wait Event Class & DB Time (sec)",
-                                                                  "Load Profile (Per Second)"))
+            for j in snap_data_cpu[i]:
+                if data_y_cpu.get(j, -1) == -1:
+                    data_y_cpu[j] = []
+                    data_y_cpu[j].append(snap_data_cpu[i][j])
+                else:
+                    data_y_cpu[j].append(snap_data_cpu[i][j])
+
+        fig = tools.make_subplots(rows=3, cols=1, subplot_titles=("Wait Event Class & DB Time (sec)",
+                                                                  "Load Profile (Per Second)",
+                                                                  "Host CPU"))
 
         for series in data_y:
             fig.append_trace(go.Scatter(x=data_x,
@@ -1777,6 +1802,13 @@ class StatspackAnalyzer(object):
                                            y=data_y_profile[series],
                                            name=series
                                            ), 2, 1)
+
+        for series in data_y_cpu:
+            fig.append_trace(go.Scatter(x=data_x,
+                                           fill="tozeroy",
+                                           y=data_y_cpu[series],
+                                           name=series
+                                           ), 3, 1)
 
         py.plot(fig, filename=self.name_pattern + ".html")
 
