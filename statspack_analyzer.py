@@ -1785,7 +1785,7 @@ class StatspackAnalyzer(object):
                 else:
                     data_y_cpu[j].append(snap_data_cpu[i][j])
 
-        fig = tools.make_subplots(rows=3, cols=1, subplot_titles=("Wait Event Class & DB Time (sec)",
+        fig = tools.make_subplots(rows=3, cols=1, shared_xaxes=True, subplot_titles=("Wait Event Class & DB Time (sec)",
                                                                   "Load Profile (Per Second)",
                                                                   "Host CPU"))
 
