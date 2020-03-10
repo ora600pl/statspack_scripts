@@ -4,16 +4,18 @@ import sys
 import os
 import re
 from datetime import datetime
-from plotly import tools
 from plotly.subplots import make_subplots
+from collections import OrderedDict
 
 
 class StatspackAnalyzer(object):
-    def __init__(self, dirname, name_pattern):
+    def __init__(self, dirname, name_pattern, param='FULL'):
         self.dirname = dirname
         self.name_pattern = name_pattern
+        self.param = param
         self.event_classes = ["System I/O", "Other", "User I/O", "Configuration", "Cluster", "Concurrency",
                               "Administrative", "Application", "Network", "Commit"]
+
         self.event_class_name = {"null event": "Other",
                                  "pmon timer": "Idle",
                                  "logout restrictor": "Concurrency",
@@ -1665,7 +1667,7 @@ class StatspackAnalyzer(object):
                                  "enq: PB - PDB Lock": "Other",
                                  "secondary event": "Other"}
 
-        self.load_profile_sec = ["DB Time", "DB CPU"]
+        self.load_profile_sec = ["DB time", "DB CPU"]
         self.load_profile_mb = ["Redo size", "Read IO", "Write IO", "W/A MB processed"]
         self.load_profile_blk = ["Logical reads", "Physical reads", "Physical writes", "Block changes"]
         self.load_profile_num = ["Read IO requests", "Write IO requests", "User calls", "Parses",
@@ -1693,8 +1695,11 @@ class StatspackAnalyzer(object):
         snap_data = {}
         snap_data_profile = {}
         snap_data_cpu = {}
+        snap_data_sql_ela = {}
         snap_data_inst_stats = {}
         snap_data_time_model = {}
+        sql_ids = {}
+
 
         for fname in os.listdir(self.dirname):
             if fname.endswith("txt") and fname.find(self.name_pattern) >= 0:
@@ -1702,12 +1707,19 @@ class StatspackAnalyzer(object):
                 wait_class_section = False
                 load_profile_section = False
                 host_cpu_section = False
+                top_sql_ela = False
+                top_sql_ela_ignore = False
                 time_model_section = False
                 instance_stats_section = False
 
                 event_class_wait_sum = {}
+                db_version = "12"
+                line_of_db_version = 6
+                line_no = 0
+                section_line = 0
                 profile_pos = 0
                 for report_line in report_file:
+                    line_no += 1
                     try:
                         report_line_words = report_line.split()
                         report_line_long_words = re.split("\s{2,}", report_line)
@@ -1719,6 +1731,7 @@ class StatspackAnalyzer(object):
                             snap_data[date] = {}
                             snap_data_profile[date] = {}
                             snap_data_cpu[date] = {}
+                            snap_data_sql_ela[date] = {}
 
                             snap_data_inst_stats[date] = {}
                             snap_data_inst_stats[date]["temp space allocated (bytes)"] = 0
@@ -1772,6 +1785,11 @@ class StatspackAnalyzer(object):
                                     ist_words = len(ist.split())
                                     snap_data_inst_stats[date][ist] = float(report_line_words[ist_words+1].replace(",", ""))
 
+                            if report_line.startswith("physical read IO requests"):
+                                snap_data_profile[date]["Read IO requests"] = float(report_line_words[5].replace(",", ""))
+                            elif report_line.startswith("physical write IO requests"):
+                                snap_data_profile[date]["Write IO requests"] = float(report_line_words[5].replace(",", ""))
+
                         # elif report_line.find("DB time:") >= 0:
                         #     snap_data[date]["DB time"] = float(report_line_words[2].replace(",","")) * 60
 
@@ -1781,15 +1799,15 @@ class StatspackAnalyzer(object):
                         elif report_line.startswith("Wait Events (fg and bg) DB/Inst"):
                             wait_class_section = True
 
-                        elif report_line.find("Host CPU") >= 0:
+                        elif re.match('.?Host CPU', report_line):
                             host_cpu_section = True
 
                         elif host_cpu_section and self.is_float(report_line_long_words[1]):
-                            snap_data_cpu[date]["Begin"] = float(report_line_long_words[1])
-                            snap_data_cpu[date]["End"] = float(report_line_long_words[2])
+                            # snap_data_cpu[date]["Begin"] = float(report_line_long_words[1])
+                            # snap_data_cpu[date]["End"] = float(report_line_long_words[2])
                             snap_data_cpu[date]["User"] = float(report_line_long_words[3])
                             snap_data_cpu[date]["System"] = float(report_line_long_words[4])
-                            snap_data_cpu[date]["Idle"] = float(report_line_long_words[5])
+                            # snap_data_cpu[date]["Idle"] = float(report_line_long_words[5])
                             snap_data_cpu[date]["WIO"] = float(report_line_long_words[6])
                             host_cpu_section = False
 
@@ -1820,7 +1838,24 @@ class StatspackAnalyzer(object):
                             wait_class_section = False
 
                             for class_name in self.event_classes:
-                                snap_data[date][class_name] = event_class_wait_sum.get(class_name,0)
+                                snap_data[date][class_name] = event_class_wait_sum.get(class_name, 0)
+
+                        elif report_line.find("SQL ordered by Elapsed time") >= 0 and not top_sql_ela_ignore:
+                            top_sql_ela = True
+
+                        elif top_sql_ela and len(report_line_words) == 7 and len(report_line_words[6]) == 10 \
+                                and report_line_words[6][0] != '-' and self.is_float(report_line_words[0]):
+
+                            snap_data_sql_ela[date][report_line_words[6]] = float(report_line_words[0].replace(",", ""))
+                            if sql_ids.get(report_line_words[6]) is None:
+                                sql_ids[report_line_words[6]] = float(report_line_words[0].replace(",", ""))
+                            else:
+                                sql_ids[report_line_words[6]] += float(report_line_words[0].replace(",", ""))
+
+                        elif top_sql_ela:
+                            if report_line.find("SQL ordered by") >= 0 and top_sql_ela:
+                                top_sql_ela = False
+                                top_sql_ela_ignore = True
 
                     except BaseException as e:
                         print(e)
@@ -1836,6 +1871,24 @@ class StatspackAnalyzer(object):
         data_y_cpu = {}
         data_y_inst_stats = {}
         data_y_time_model = {}
+        data_y_sql_ela = {}
+
+        sql_ela_ns = []
+        for sqlid in sql_ids:
+            sql_ela_ns.append([sql_ids[sqlid], sqlid])
+
+        sql_ela_s = sorted(sql_ela_ns)
+        sql_ela_top = sql_ela_s[-20:]
+        sql_ela_top_dict = {}
+        for se in sql_ela_top:
+            sql_ela_top_dict[se[1]] = se[0]
+
+        for i in snap_data_sql_ela:
+            for sqlid in sql_ids:
+                if snap_data_sql_ela[i].get(sqlid) is None:
+                    snap_data_sql_ela[i][sqlid] = 0
+                if sqlid not in sql_ela_top_dict:
+                    del snap_data_sql_ela[i][sqlid]
 
         for i in data_x:
             for j in snap_data[i]:
@@ -1868,98 +1921,254 @@ class StatspackAnalyzer(object):
                 data_y_time_model.setdefault(j, [])
                 data_y_time_model[j].append(snap_data_time_model[i][j])
 
-        fig = make_subplots(rows=8, cols=1, shared_xaxes=True, subplot_titles=("Wait Event Class & DB Time (sec)",
-                                                                               "Load Profile (DB/CPU)",
-                                                                               "Load Profile (I/O R/W, Redo, SQL Workarea)",
-                                                                               "Logical/Physical Reads/Writes, Block changes",
-                                                                               "I/O Requests, Calls, Parses, Logons, SQL Executes, Rollbacks, Transactions, Sessions",
-                                                                               "Host CPU Average Load",
-                                                                               "Instance stats / s",
-                                                                               "Time Model"
-                                                                               ))
+            for j in snap_data_sql_ela[i]:
+                data_y_sql_ela.setdefault(j, [])
+                data_y_sql_ela[j].append(snap_data_sql_ela[i][j])
 
-        fig['layout']['yaxis1'].update(title='sec')
-        fig['layout']['yaxis2'].update(title='sec/s')
-        fig['layout']['yaxis3'].update(title='MB/s')
-        fig['layout']['yaxis4'].update(title='#blks/s')
-        fig['layout']['yaxis5'].update(title='#/s')
-        fig['layout']['yaxis6'].update(title='%')
-        fig['layout']['yaxis7'].update(title='#/s')
-        fig['layout']['yaxis8'].update(title='sec')
+        if self.param == 'FULL':
 
-        fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+            fig = make_subplots(rows=9, cols=1, shared_xaxes=True, subplot_titles=("Wait Event Class & DB Time (sec)",
+                                                                                   "Load Profile (DB/CPU)",
+                                                                                   "TOP SQL by Elapsed time",
+                                                                                   "Time Model",
+                                                "I/O Requests, Calls, Parses, Logons, SQL Executes, Rollbacks, Transactions, Sessions",
+                                                "Host CPU Average Load",
+                                                "Instance stats / s",
+                                                "Load Profile (I/O R/W, Redo, SQL Workarea)",
+                                                "Logical/Physical Reads/Writes, Block changes"
+                                                ))
 
-        for series in data_y:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 1, 1)
+            fig['layout']['yaxis1'].update(title='sec')
+            fig['layout']['yaxis2'].update(title='sec/s')
+            fig['layout']['yaxis3'].update(title='sec')
+            fig['layout']['yaxis4'].update(title='sec')
+            fig['layout']['yaxis5'].update(title='#/s')
+            fig['layout']['yaxis6'].update(title='%')
+            fig['layout']['yaxis7'].update(title='#/s')
+            fig['layout']['yaxis8'].update(title='MB/s')
+            fig['layout']['yaxis9'].update(title='#blk/s')
 
-        for series in data_y_profile_sec:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_profile_sec[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 2, 1)
+            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
 
-        for series in data_y_profile_mb:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_profile_mb[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 3, 1)
+            for series in data_y:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            #stackgroup='waits',
+                                            ), 1, 1)
 
-        for series in data_y_profile_blk:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_profile_blk[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 4, 1)
+            for series in data_y_profile_sec:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_sec[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 2, 1)
+            for series in data_y_sql_ela:
+                fig.add_trace(go.Scatter(x=data_x,
+                                            #fill="tozeroy",
+                                            y=data_y_sql_ela[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            #visible="legendonly",
+                                            ), 3, 1)
 
-        for series in data_y_profile_num:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_profile_num[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 5, 1)
+            for series in data_y_time_model:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_time_model[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 4, 1)
 
-        for series in data_y_cpu:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_cpu[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 6, 1)
+            for series in data_y_profile_num:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_num[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 5, 1)
 
-        for series in data_y_inst_stats:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_inst_stats[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 7, 1)
+            for series in data_y_cpu:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_cpu[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            stackgroup='cpu',
+                                            ), 6, 1)
 
-        for series in data_y_time_model:
-            fig.append_trace(go.Scatter(x=data_x,
-                                        fill="tozeroy",
-                                        y=data_y_time_model[series],
-                                        name=series,
-                                        mode='lines+markers',
-                                        line=dict(shape='hv'),
-                                        ), 8, 1)
+            for series in data_y_inst_stats:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_inst_stats[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 7, 1)
+
+            for series in data_y_profile_mb:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_mb[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 8, 1)
+
+            for series in data_y_profile_blk:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_blk[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 9, 1)
+
+
+
+            #fig.update_xaxes(showticklabels=False)
+            fig.update_layout(height=1500)
+
+        elif self.param == 'SQL':
+            fig = make_subplots(rows=3, cols=1, shared_xaxes=True, subplot_titles=("Wait Event Class & DB Time (sec)",
+                                                                                   "Load Profile (DB/CPU)",
+                                                                                   "TOP SQL Ela (sec)"
+                                                                                   ))
+
+            fig['layout']['yaxis1'].update(title='sec')
+            fig['layout']['yaxis2'].update(title='sec/s')
+            fig['layout']['yaxis3'].update(title='sec')
+
+            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+
+            for series in data_y:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            #stackgroup='waits',
+                                            ), 1, 1)
+
+            for series in data_y_profile_sec:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_sec[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 2, 1)
+
+            for series in data_y_sql_ela:
+                fig.add_trace(go.Scatter(x=data_x,
+                                            #fill="tozeroy",
+                                            y=data_y_sql_ela[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            #visible="legendonly",
+                                            ), 3, 1)
+
+        elif self.param == 'IO':
+
+            fig = make_subplots(rows=7, cols=1, shared_xaxes=True, subplot_titles=("Wait Event Class & DB Time (sec)",
+                                                                                   "Load Profile (DB/CPU)",
+                                                "I/O Requests, Calls, Parses, Logons, SQL Executes, Rollbacks, Transactions, Sessions",
+                                                "Host CPU Average Load",
+                                                "Instance stats / s",
+                                                "Load Profile (I/O R/W, Redo, SQL Workarea)",
+                                                "Logical/Physical Reads/Writes, Block changes"
+                                                ))
+
+            fig['layout']['yaxis1'].update(title='sec')
+            fig['layout']['yaxis2'].update(title='sec/s')
+            fig['layout']['yaxis3'].update(title='#/s')
+            fig['layout']['yaxis4'].update(title='%')
+            fig['layout']['yaxis5'].update(title='#/s')
+            fig['layout']['yaxis6'].update(title='MB/s')
+            fig['layout']['yaxis7'].update(title='#blk/s')
+
+            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+
+            for series in data_y:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            #stackgroup='waits',
+                                            ), 1, 1)
+
+            for series in data_y_profile_sec:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_sec[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 2, 1)
+
+            for series in data_y_profile_num:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_num[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 3, 1)
+
+            for series in data_y_cpu:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_cpu[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            stackgroup='cpu',
+                                            ), 4, 1)
+
+            for series in data_y_inst_stats:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_inst_stats[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 5, 1)
+
+            for series in data_y_profile_mb:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_mb[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 6, 1)
+
+            for series in data_y_profile_blk:
+                fig.append_trace(go.Scatter(x=data_x,
+                                            fill="tozeroy",
+                                            y=data_y_profile_blk[series],
+                                            name=series,
+                                            mode='lines+markers',
+                                            line=dict(shape='hv'),
+                                            ), 7, 1)
+
+
+
+            #fig.update_xaxes(showticklabels=False)
+            #fig.update_layout(height=1500)
 
         py.plot(fig, filename=self.name_pattern + ".html")
 
@@ -1967,6 +2176,9 @@ class StatspackAnalyzer(object):
 if __name__ == '__main__':
     if len(sys.argv) == 3:
         sa = StatspackAnalyzer(sys.argv[1], sys.argv[2])
+        sa.plot()
+    elif len(sys.argv) == 4 and (sys.argv[3] == 'SQL' or sys.argv[3] == 'IO'):
+        sa = StatspackAnalyzer(sys.argv[1], sys.argv[2], sys.argv[3])
         sa.plot()
     else:
         print("This script by Kamil Stawiarski (@ora600pl) is to help you with visualizing data from multiple "
