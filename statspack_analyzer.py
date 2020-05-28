@@ -13,6 +13,7 @@ class StatspackAnalyzer(object):
         self.dirname = dirname
         self.name_pattern = name_pattern
         self.param = param
+        self.cpu_count = 0
         self.event_classes = ["System I/O", "Other", "User I/O", "Configuration", "Cluster", "Concurrency",
                               "Administrative", "Application", "Network", "Commit"]
 
@@ -1671,7 +1672,8 @@ class StatspackAnalyzer(object):
         self.load_profile_mb = ["Redo size", "Read IO", "Write IO", "W/A MB processed"]
         self.load_profile_blk = ["Logical reads", "Physical reads", "Physical writes", "Block changes"]
         self.load_profile_num = ["Read IO requests", "Write IO requests", "User calls", "Parses",
-                                 "Hard parses", "Logons", "Executes", "Rollbacks", "Transactions"]
+                                 "Hard parses", "Logons", "Executes", "Rollbacks", "Transactions", "Sessions (Begin)",
+                                 "Sessions (End)"]
 
         self.load_profile_elems = self.load_profile_sec + \
                                   self.load_profile_mb + self.load_profile_blk + self.load_profile_num
@@ -1752,14 +1754,16 @@ class StatspackAnalyzer(object):
                             snap_data_time_model[date]["sql execute elapsed time"] = 0
                             snap_data_time_model[date]["hard parse elapsed time"] = 0
                             snap_data_time_model[date]["failed parse elapsed time"] = 0
-                            snap_data_time_model[date]["connection management call elapsed time"] = 0
-                            snap_data_time_model[date]["hard parse (sharing criteria) elapsed time"] = 0
+                            snap_data_time_model[date]["connection management call elapsed"] = 0
+                            snap_data_time_model[date]["hard parse (sharing criteria) elaps"] = 0
                             snap_data_time_model[date]["PL/SQL execution elapsed time"] = 0
                             snap_data_time_model[date]["PL/SQL compilation elapsed time"] = 0
                             snap_data_time_model[date]["sequence load elapsed time"] = 0
                             snap_data_time_model[date]["hard parse (bind mismatch) elapsed time"] = 0
                             snap_data_time_model[date]["Java execution elapsed time"] = 0
                             snap_data_time_model[date]["DB time"] = 0
+
+                            snap_data_profile[date]["Sessions (Begin)"] = int(report_line_words[5].replace(",", ""))
 
                         elif not time_model_section and report_line.startswith("Time Model"):
                             time_model_section = True
@@ -1790,6 +1794,9 @@ class StatspackAnalyzer(object):
                             elif report_line.startswith("physical write IO requests"):
                                 snap_data_profile[date]["Write IO requests"] = float(report_line_words[5].replace(",", ""))
 
+                        elif report_line.find("End Snap:") >= 0 and self.is_float(report_line_words[5]):
+                            snap_data_profile[date]["Sessions (End)"] = int(report_line_words[5].replace(",", ""))
+
                         # elif report_line.find("DB time:") >= 0:
                         #     snap_data[date]["DB time"] = float(report_line_words[2].replace(",","")) * 60
 
@@ -1801,6 +1808,7 @@ class StatspackAnalyzer(object):
 
                         elif re.match('.?Host CPU', report_line):
                             host_cpu_section = True
+                            self.cpu_count = report_line_words[3]
 
                         elif host_cpu_section and self.is_float(report_line_long_words[1]):
                             # snap_data_cpu[date]["Begin"] = float(report_line_long_words[1])
@@ -1948,7 +1956,7 @@ class StatspackAnalyzer(object):
             fig['layout']['yaxis8'].update(title='MB/s')
             fig['layout']['yaxis9'].update(title='#blk/s')
 
-            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+            fig['layout'].update(title='SP ' + data_x[0] + " - " + data_x[-1] + " CPUs: " + str(self.cpu_count))
 
             for series in data_y:
                 fig.append_trace(go.Scatter(x=data_x,
@@ -2048,7 +2056,7 @@ class StatspackAnalyzer(object):
             fig['layout']['yaxis2'].update(title='sec/s')
             fig['layout']['yaxis3'].update(title='sec')
 
-            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+            fig['layout'].update(title='SP ' + data_x[0] + " - " + data_x[-1] + " CPUs: " + str(self.cpu_count))
 
             for series in data_y:
                 fig.append_trace(go.Scatter(x=data_x,
@@ -2098,7 +2106,7 @@ class StatspackAnalyzer(object):
             fig['layout']['yaxis6'].update(title='MB/s')
             fig['layout']['yaxis7'].update(title='#blk/s')
 
-            fig['layout'].update(title='AWR ' + data_x[0] + " - " + data_x[-1])
+            fig['layout'].update(title='SP ' + data_x[0] + " - " + data_x[-1] + " CPUs: " + str(self.cpu_count))
 
             for series in data_y:
                 fig.append_trace(go.Scatter(x=data_x,
