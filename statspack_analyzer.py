@@ -1704,7 +1704,7 @@ class StatspackAnalyzer(object):
 
 
         for fname in os.listdir(self.dirname):
-            if fname.endswith("txt") and fname.find(self.name_pattern) >= 0:
+            if (fname.endswith("txt") or fname.endswith("lst")) and fname.find(self.name_pattern) >= 0:
                 report_file = open(self.dirname + "/" + fname, "r").readlines()
                 wait_class_section = False
                 load_profile_section = False
@@ -1748,6 +1748,7 @@ class StatspackAnalyzer(object):
                             snap_data_inst_stats[date]["table scans (short tables)"] = 0
                             snap_data_inst_stats[date]["queries parallelized"] = 0
                             snap_data_inst_stats[date]["cell scans"] = 0
+                            snap_data_inst_stats[date]["user commits"] = 0
 
                             snap_data_time_model[date] = {}
                             snap_data_time_model[date]["parse time elapsed"] = 0
