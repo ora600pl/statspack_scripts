@@ -28,7 +28,7 @@ select SNAP_ID || ' ' || lead(snap_id, 1) over (order by snap_id) as cmd, lead(s
 from perfstat.STATS\$SNAPSHOT
 where STARTUP_TIME=(select max(startup_time) from perfstat.STATS\$SNAPSHOT)
 and   DBID=(select dbid from v\$database)
-and   SNAP_TIME <= SYSDATE-${REP_TIME}
+and   SNAP_TIME >= SYSDATE-${REP_TIME}
 )
 select cmd
 from v_snaps
